@@ -1,0 +1,5 @@
+- task.data=/home/ubuntu/self-supervised-speech-recognition/temp
+- distributed_training.distributed_world_size=1
+- +optimization.update_freq=[64]
+- dataset.num_workers=8
+- dataset.max_tokens=1200000

@@ -34,7 +34,7 @@ MASKING_DISTRIBUTION_CHOICES = ChoiceEnum(["static", "uniform", "normal", "poiss
 
 
 @dataclass
-class Wav2Vec2Config(FairseqDataclass):
+class Wav2Vec3Config(FairseqDataclass):
     extractor_mode: EXTRACTOR_MODE_CHOICES = field(
         default="default",
         metadata={
@@ -219,9 +219,9 @@ class Wav2Vec2Config(FairseqDataclass):
     )
 
 
-@register_model("wav2vec2", dataclass=Wav2Vec2Config)
-class Wav2Vec2Model(BaseFairseqModel):
-    def __init__(self, cfg: Wav2Vec2Config):
+@register_model("wav2vec3", dataclass=Wav2Vec3Config)
+class Wav2Vec3Model(BaseFairseqModel):
+    def __init__(self, cfg: Wav2Vec3Config):
         super().__init__()
         self.cfg = cfg
 
@@ -448,7 +448,7 @@ class Wav2Vec2Model(BaseFairseqModel):
         return state_dict
 
     @classmethod
-    def build_model(cls, cfg: Wav2Vec2Config, task=None):
+    def build_model(cls, cfg: Wav2Vec3Config, task=None):
         """Build a new model instance."""
 
         return cls(cfg)
