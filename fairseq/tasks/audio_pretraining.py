@@ -139,7 +139,7 @@ class AudioPretrainingTask(FairseqTask):
             pad=task_cfg.labels is not None or task_cfg.enable_padding,
             normalize=task_cfg.normalize,
         )
-
+        
         if task_cfg.labels:
             label_path = os.path.join(data_path, f"{split}.{task_cfg.labels}")
             with open(label_path, "r") as f:

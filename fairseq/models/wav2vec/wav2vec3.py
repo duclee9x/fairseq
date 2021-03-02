@@ -12,6 +12,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from fairseq import utils
+import math
+from torch import Tensor
+from typing import Tuple
 from fairseq.data.data_utils import compute_mask_indices
 from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.models import BaseFairseqModel, register_model
@@ -27,7 +30,7 @@ from fairseq.modules import (
 )
 from fairseq.modules.transformer_sentence_encoder import init_bert_params
 from fairseq.utils import buffered_arange
-
+from fairseq.modules.convolution import Conv2dSubsampling
 
 EXTRACTOR_MODE_CHOICES = ChoiceEnum(["default", "layer_norm"])
 MASKING_DISTRIBUTION_CHOICES = ChoiceEnum(["static", "uniform", "normal", "poisson"])
@@ -68,7 +71,7 @@ class Wav2Vec3Config(FairseqDataclass):
     )
     activation_dropout: float = field(
         default=0.0, metadata={"help": "dropout probability after activation in FFN"}
-    )
+    )   
     encoder_layerdrop: float = field(
         default=0.0, metadata={"help": "probability of dropping a tarnsformer layer"}
     )
@@ -228,12 +231,15 @@ class Wav2Vec3Model(BaseFairseqModel):
         feature_enc_layers = eval(cfg.conv_feature_layers)
         self.embed = feature_enc_layers[-1][0]
 
-        self.feature_extractor = ConvFeatureExtractionModel(
-            conv_layers=feature_enc_layers,
-            dropout=0.0,
-            mode=cfg.extractor_mode,
-            conv_bias=cfg.conv_bias,
-        )
+        # self.feature_extractor = ConvFeatureExtractionModel(
+        #     conv_layers=feature_enc_layers,
+        #     dropout=0.0,
+        #     mode=cfg.extractor_mode,
+        #     conv_bias=cfg.conv_bias,
+        # )
+
+        self.feature_extractor = Conv2dSubsampling(1, in_channels=1, out_channels=self.embed)
+
 
         self.post_extract_proj = (
             nn.Linear(self.embed, cfg.encoder_embed_dim)
@@ -320,15 +326,17 @@ class Wav2Vec3Model(BaseFairseqModel):
         self.final_proj = nn.Linear(cfg.encoder_embed_dim, final_dim)
 
     def forward(self, source, padding_mask=None, mask=True, features_only=False):
+        print('checkpoint: ' + str(source.shape))
+        print(source[0])
 
         if self.feature_grad_mult > 0:
             features = self.feature_extractor(source)
             if self.feature_grad_mult != 1.0:
-                features = GradMultiply.apply(features, self.feature_grad_mult)
+                features, _ = GradMultiply.apply(features, self.feature_grad_mult)
         else:
             with torch.no_grad():
-                features = self.feature_extractor(source)
-
+                features, _ = self.feature_extractor(source)
+        print('after'+ str(features.shape))
         features_pen = features.float().pow(2).mean()
 
         features = features.transpose(1, 2)
@@ -623,6 +631,7 @@ class Wav2Vec3Model(BaseFairseqModel):
         self.final_proj = None
 
 
+
 class ConvFeatureExtractionModel(nn.Module):
     def __init__(
         self,
@@ -702,6 +711,47 @@ class ConvFeatureExtractionModel(nn.Module):
             x = conv(x)
 
         return x
+    """
+    Convolutional 2D subsampling (to 1/4 length)
+
+    Args:
+        input_dim (int): Dimension of input vector
+        in_channels (int): Number of channels in the input vector
+        out_channels (int): Number of channels produced by the convolution
+        activation (str): Activation function
+
+    Inputs: inputs
+        - **inputs** (batch, time, dim): Tensor containing sequence of inputs
+        - **input_lengths** (batch): list of sequence input lengths
+
+    Returns: outputs, output_lengths
+        - **outputs** (batch, time, dim): Tensor produced by the convolution
+        - **output_lengths** (batch): list of sequence output lengths
+    """
+    def __init__(
+            self,
+            input_dim: int,
+            in_channels: int,
+            out_channels: int,
+            activation: str = 'relu',
+    ) -> None:
+        super(Conv2dSubsampling, self).__init__(input_dim, activation)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.conv = MaskCNN(
+            nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2),
+                self.activation,
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2),
+                self.activation,
+            )
+        )
+
+    def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
+        outputs, input_lengths = super().forward(inputs, input_lengths)
+        output_lengths = input_lengths >> 2
+        output_lengths -= 1
+        return outputs, output_lengths
 
 
 class TransformerEncoder(nn.Module):
