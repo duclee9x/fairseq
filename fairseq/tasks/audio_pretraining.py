@@ -13,10 +13,11 @@ from argparse import Namespace
 from dataclasses import dataclass, field
 from typing import Optional, Any
 from omegaconf import MISSING
-
+from fairseq.dataclass import ChoiceEnum
 from fairseq.data import AddTargetDataset, Dictionary, FileAudioDataset, encoders
 from fairseq.dataclass import FairseqDataclass
 from fairseq.dataclass.configs import GenerationConfig
+from fairseq.data.audio.feature_transforms.transformation import MelSpectrogram
 
 from . import FairseqTask, register_task
 from .. import utils
@@ -32,6 +33,8 @@ class LabelEncoder(object):
             label, append_eos=False, add_if_not_exist=False
         )
 
+TRANSFORM_AUDIO_METHODS = ChoiceEnum(['melspectrogram'])
+TRANSFORM_AUDIO_BY = ChoiceEnum(['torchaudio','librosa'])
 
 @dataclass
 class AudioPretrainingConfig(FairseqDataclass):
@@ -46,6 +49,29 @@ class AudioPretrainingConfig(FairseqDataclass):
             "help": "target sample rate. audio files will be up/down sampled to this rate"
         },
     )
+    transform_method: TRANSFORM_AUDIO_METHODS = field(
+        default=None,
+        metadata={
+            "help": "method use to extract feature from raw audio files."
+        }
+    )
+    n_mels: int = field(
+        default=80,
+        metadata={'help': "Number of mfc coefficients to retain. (Default: 80)"}
+    )
+    frame_length: int = field(
+        default=20,
+        metadata={'help': "frame length for spectrogram (ms) (Default : 20)"}
+    )
+    
+    frame_shift: int = field(
+        default=10,
+        metadata={'help': "Length of hop between STFT windows. (ms) (Default: 10)"}
+    )
+    transform_by: TRANSFORM_AUDIO_BY = field(
+        default='torchaudio',
+        metadata={'help':"which library to use for feature extraction (default: torchaudio)"}
+    )
     normalize: bool = field(
         default=False,
         metadata={"help": "if set, normalizes input to have 0 mean and unit variance"},
@@ -59,6 +85,9 @@ class AudioPretrainingConfig(FairseqDataclass):
     min_sample_size: Optional[int] = field(
         default=None, metadata={"help": "min sample size to skip small examples"}
     )
+
+    # Use preprocess wavfile
+
 
     # Options for reporting WER metrics during validation. Only applicable to
     # Seq2Seq models during fine-tuning
@@ -130,6 +159,8 @@ class AudioPretrainingTask(FairseqTask):
             if not hasattr(task_cfg, "autoregressive"):
                 task_cfg.autoregressive = not task_cfg.criterion == 'ctc'
 
+
+        self.audio_transformer = MelSpectrogram()
         manifest = os.path.join(data_path, "{}.tsv".format(split))
         self.datasets[split] = FileAudioDataset(
             manifest,
@@ -138,6 +169,7 @@ class AudioPretrainingTask(FairseqTask):
             min_sample_size=self.cfg.min_sample_size,
             pad=task_cfg.labels is not None or task_cfg.enable_padding,
             normalize=task_cfg.normalize,
+            audio_transformer=self.audio_transformer
         )
         
         if task_cfg.labels:

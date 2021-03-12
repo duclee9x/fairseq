@@ -138,6 +138,7 @@ class FileAudioDataset(RawAudioDataset):
         shuffle=True,
         pad=False,
         normalize=False,
+        audio_transformer=None
     ):
         super().__init__(
             sample_rate=sample_rate,
@@ -147,10 +148,10 @@ class FileAudioDataset(RawAudioDataset):
             pad=pad,
             normalize=normalize,
         )
-
+        self.audio_transformer = audio_transformer
         self.fnames = []
         self.line_inds = set()
-
+        
         skipped = 0
         with open(manifest_path, "r") as f:
             self.root_dir = f.readline().strip()
@@ -171,6 +172,12 @@ class FileAudioDataset(RawAudioDataset):
 
         fname = os.path.join(self.root_dir, self.fnames[index])
         wav, curr_sample_rate = sf.read(fname)
-        feats = torch.from_numpy(wav).float()
+        if self.audio_transformer != None:
+            feats = self.audio_transformer(wav)
+        else:
+            feats = torch.from_numpy(wav).float()
         feats = self.postprocess(feats, curr_sample_rate)
+        print('feats')
+        print(feats.shape)
         return {"id": index, "source": feats}
+

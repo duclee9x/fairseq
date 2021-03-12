@@ -46,6 +46,12 @@ class Wav2Vec3Config(FairseqDataclass):
             "every block (meant to use with normalize=True)"
         },
     )
+    input_dim: int = field(
+        default=80, metadata={"help": "input dimension"}
+    )
+    encoder_dim: int = field(
+        default=512, metadata={"help": "encoder dimension"}
+    )
     encoder_layers: int = field(
         default=12, metadata={"help": "num encoder layers in the transformer"}
     )
@@ -95,7 +101,7 @@ class Wav2Vec3Config(FairseqDataclass):
         default=False, metadata={"help": "apply layernorm first in the transformer"}
     )
     conv_feature_layers: str = field(
-        default="[(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512,2,2)] + [(512,2,2)]",
+        default="[(512, 10, 5)] + [(512,  [(512,2,2)] + [(512,2,2)],3, 2)] * 4 +
         metadata={
             "help": "string describing convolutional feature extraction layers in form of a python list that contains "
             "[(dim, kernel_size, stride), ...]"
@@ -228,9 +234,8 @@ class Wav2Vec3Model(BaseFairseqModel):
         super().__init__()
         self.cfg = cfg
 
-        feature_enc_layers = eval(cfg.conv_feature_layers)
-        self.embed = feature_enc_layers[-1][0]
-
+        # feature_enc_layers = eval(cfg.conv_feature_layers)
+        # self.embed = feature_enc_layers[-1][0]
         # self.feature_extractor = ConvFeatureExtractionModel(
         #     conv_layers=feature_enc_layers,
         #     dropout=0.0,
@@ -238,14 +243,30 @@ class Wav2Vec3Model(BaseFairseqModel):
         #     conv_bias=cfg.conv_bias,
         # )
 
-        self.feature_extractor = Conv2dSubsampling(1, in_channels=1, out_channels=self.embed)
-
+        self.feature_extractor = Conv2dSubsampling(self.input_dim, in_channels=1, out_channels=self.encoder_dim)
 
         self.post_extract_proj = (
             nn.Linear(self.embed, cfg.encoder_embed_dim)
             if self.embed != cfg.encoder_embed_dim and not cfg.quantize_input
             else None
         )
+
+
+
+        self.layers = nn.ModuleList([
+            ConformerBlock(
+                encoder_dim=encoder_dim,
+                num_attention_heads=num_attention_heads,
+                feed_forward_expansion_factor=feed_forward_expansion_factor,
+                conv_expansion_factor=conv_expansion_factor,
+                feed_forward_dropout_p=feed_forward_dropout_p,
+                attention_dropout_p=attention_dropout_p,
+                conv_dropout_p=conv_dropout_p,
+                conv_kernel_size=conv_kernel_size,
+                half_step_residual=half_step_residual,
+                device=device,
+            ).to(device) for _ in range(num_layers)
+        ])
 
         self.mask_prob = cfg.mask_prob
         self.mask_selection = cfg.mask_selection
