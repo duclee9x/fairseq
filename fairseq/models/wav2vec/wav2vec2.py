@@ -27,7 +27,7 @@ from fairseq.modules import (
 )
 from fairseq.modules.transformer_sentence_encoder import init_bert_params
 from fairseq.utils import buffered_arange
-
+from fairseq.modules.wav2vec3.convolution import Conv2dSubsampling
 
 EXTRACTOR_MODE_CHOICES = ChoiceEnum(["default", "layer_norm"])
 MASKING_DISTRIBUTION_CHOICES = ChoiceEnum(["static", "uniform", "normal", "poisson"])
@@ -234,7 +234,11 @@ class Wav2Vec2Model(BaseFairseqModel):
             mode=cfg.extractor_mode,
             conv_bias=cfg.conv_bias,
         )
-
+        # self.feature_extractor = Conv2dSubsampling(80, 1, out_channels=512)
+        self.input_projection = nn.Sequential(
+            Linear(self.feature_extractor.get_output_dim(), 512),
+            nn.Dropout(p=cfg.dropout),
+        )
         self.post_extract_proj = (
             nn.Linear(self.embed, cfg.encoder_embed_dim)
             if self.embed != cfg.encoder_embed_dim and not cfg.quantize_input
@@ -897,3 +901,4 @@ class TransformerSentenceEncoderLayer(nn.Module):
             x = self.final_layer_norm(x)
 
         return x, attn
+
