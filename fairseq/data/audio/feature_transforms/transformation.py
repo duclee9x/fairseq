@@ -232,4 +232,4 @@ class FilterBank(object):
             num_mel_bins=self.n_mels,
             frame_length=self.frame_length,
             frame_shift=self.frame_shift,
-        ).transpose(0, 1).numpy()
+        ).transpose(0, 1)
